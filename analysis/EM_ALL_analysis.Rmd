@@ -1,0 +1,665 @@
+---
+title: "EM ANALYSIS"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+load("EM_CDCwCALC_2112.rdata")
+load("EM_SAFwCALC_2112.rdata")
+EM_ALL<-bind_rows(EM_CDCwCALC_2112,EM_SAFwCALC_2112)
+save(EM_ALL,file="EM_ALL.rdata")
+load("pubsaf2112v2.rdata")
+load("EM_ALL.rdata")
+```
+
+```{r TABLE 1}
+#quality check on data
+table(pubsaf2112v2$DEATH_EVENT)
+(pubsaf2112v2%>%filter(is.na(REC_TX_DT)))
+(pubsaf2112v2%>%filter(ds<"2014-01-01"))
+range(pubsaf2112v2$REC_TX_DT)
+range(pubsaf2112v2$ds,na.rm=T)
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%group_by(ORG_TY)%>%
+   group_by(ORG_TY)%>%count()%>%ungroup())
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%count()%>%ungroup())
+
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%group_by(ORG_TY)%>%
+    mutate(AGE=paste0(round(mean(REC_AGE_AT_TX,na.rm=T),1),"","(",
+                      round(sd(REC_AGE_AT_TX,na.rm=T),1),")"))%>%
+    ungroup()%>%distinct(ORG_TY,AGE)%>%arrange(AGE))
+
+12*(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    mutate(AGE=paste0(round(mean(REC_AGE_AT_TX,na.rm=T),1)," ","(",
+                      round(sd(REC_AGE_AT_TX,na.rm=T),1),")"))%>%
+    distinct(AGE))
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%group_by(ORG_TY)%>%
+    mutate(AGE2=paste0(round(median(REC_AGE_AT_TX,na.rm=T),1)," ","(",round(min(REC_AGE_AT_TX,na.rm=T),1),",",round(max(REC_AGE_AT_TX),1),")"))%>%
+    ungroup()%>%distinct(ORG_TY,AGE2))
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    mutate(AGE2=paste0(round(median(REC_AGE_AT_TX,na.rm=T),1)," ","(",round(min(REC_AGE_AT_TX,na.rm=T),1),",",round(max(REC_AGE_AT_TX),1),")"))%>%
+    distinct(AGE2))
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(ORG_TY,CAN_GENDER)%>%count()%>%
+    ungroup()%>%group_by(ORG_TY)%>%
+    mutate(PER=round(100*n/sum(n),1))%>%
+    ungroup()%>%mutate(SEX=paste0(n," ","(",PER,")"))%>%
+    distinct(ORG_TY,CAN_GENDER,SEX))
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(CAN_GENDER)%>%count()%>%ungroup()%>%
+    mutate(PER=round(100*n/sum(n),1))%>%
+    mutate(SEXall=paste0(n," ","(",
+                         PER,")"))%>%
+    distinct(CAN_GENDER,SEXall))
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(ORG_TY,AGE_GROUP)%>%count()%>%ungroup()%>%
+    group_by(ORG_TY)%>%mutate(nn=sum(n))%>%ungroup()%>%
+    mutate(PER=round(100*n/nn,1)))
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(AGE_GROUP)%>%count()%>%ungroup()%>%
+    mutate(nn=sum(n),PER=round(100*n/nn,1)))
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(ORG_TY,CAN_RACE_SRTR)%>%count()%>%ungroup()%>%
+    group_by(ORG_TY)%>%mutate(nn=sum(n))%>%ungroup()%>%
+    mutate(PER=round(100*n/nn,1)))
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(CAN_RACE_SRTR)%>%count()%>%ungroup()%>%
+    mutate(nn=sum(n),PER=round(100*n/nn,1)))
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(ORG_TY,CAN_ETHNICITY_SRTR)%>%count()%>%ungroup()%>%
+    group_by(ORG_TY)%>%mutate(nn=sum(n))%>%ungroup()%>%
+    mutate(PER=round(100*n/nn,1)))
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%
+    group_by(CAN_ETHNICITY_SRTR)%>%count()%>%ungroup()%>%
+    mutate(nn=sum(n),PER=round(100*n/nn,1)))
+
+# age at death
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%filter(!is.na(ds))%>%
+    group_by(ORG_TY)%>%mutate(mean_deathage=mean(AGE_DEATH),
+                              sd_deathage=sd(AGE_DEATH))%>%
+    distinct(ORG_TY,mean_deathage,sd_deathage))
+
+(pubsaf2112v2%>%filter(GROUP=="GROUP1")%>%filter(!is.na(ds))%>%
+    mutate(mean_deathage=mean(AGE_DEATH),
+                              sd_deathage=sd(AGE_DEATH))%>%
+    distinct(mean_deathage,sd_deathage))
+
+# observed deaths per 10,000
+
+(EM_SAFwCALC_2112%>%filter(GROUP=="GROUP1")%>%
+    group_by(SUBGROUP)%>%
+    mutate(obs=mean(percapita*y/population),
+           sd=sd(percapita*y/population))%>%
+    ungroup()%>%
+    select(SUBGROUP,obs,sd)%>%distinct()%>%arrange(obs))
+
+(EM_SAFwCALC_2112%>%filter(GROUP=="GROUP1")%>%
+    mutate(obs=mean(percapita*y/population),
+           sd=sd(percapita*y/population))%>%
+    ungroup()%>%
+    select(obs,sd)%>%distinct())
+
+```
+
+```{r FIGURE 1}
+range(EM_SAFwCALC_2112$elapsed_months)
+
+# HEART
+fig1<-function(){
+  (fig1_HR<-EM_SAFwCALC_2112%>%
+   filter(GROUP=="GROUP1",between(elapsed_months,-73,20),SUBGROUP=="ORGAN HR")%>%
+  mutate(marker=ifelse(elapsed_months<1,"pre-covid","post-covid"),
+         marker=factor(marker,levels=c("pre-covid","post-covid")))%>%
+  ggplot(.)+mytheme+scale_color_nejm()+scale_fill_nejm()+
+  scale_x_continuous(limits=c(-73,20),breaks=c(-73,-62,-48,-36,-24,-12,0,12,20))+
+  geom_col(aes(x=elapsed_months,y=`Observed Deaths`,fill=marker),width=0.7,alpha=0.8)+
+  geom_line(aes(x=elapsed_months,y=`Expected Deaths`),color="black",size=1)+
+  ggtitle("Heart")+
+   theme(plot.title=element_text(hjust=0.5,size=10,face="bold"),legend.text=element_text(size=8))+
+  xlab("months from March 1, 2020")+
+  ylab("Deaths")+theme(legend.key.width= unit(0.4,"cm"),
+                       legend.key.height = unit(0.4,"cm"),
+                       legend.position=c(0.33,0.8)))
+
+ggsave(plot=fig1_HR,"fig1_HR.tiff",
+       dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+# KIDNEY
+(fig1_KI<-EM_SAFwCALC_2112%>%
+   filter(GROUP=="GROUP1",between(elapsed_months,-73,20),SUBGROUP=="ORGAN KI")%>%
+  mutate(marker=ifelse(elapsed_months<1,"pre-covid","post-covid"),
+         marker=factor(marker,levels=c("pre-covid","post-covid")))%>%
+  ggplot(.)+mytheme+scale_color_nejm()+scale_fill_nejm()+
+  scale_x_continuous(limits=c(-73,20),breaks=c(-73,-62,-48,-36,-24,-12,0,12,20))+
+  geom_col(aes(x=elapsed_months,y=`Observed Deaths`,fill=marker),width=0.7,alpha=0.8)+
+  geom_line(aes(x=elapsed_months,y=`Expected Deaths`),color="black",size=1)+
+  ggtitle("Kidney")+
+   theme(plot.title=element_text(hjust=0.5,size=10,face="bold"),legend.text=element_text(size=8))+
+  xlab("months from March 1, 2020")+
+  ylab("Deaths")+theme(legend.key.width= unit(0.4,"cm"),
+                       legend.key.height = unit(0.4,"cm"),
+                       legend.position=c(0.33,0.8)))
+
+ggsave(plot=fig1_KI,"fig1_KI.tiff",
+       dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+# LIVER
+(fig1_LI<-EM_SAFwCALC_2112%>%
+   filter(GROUP=="GROUP1",between(elapsed_months,-73,20),SUBGROUP=="ORGAN LI")%>%
+  mutate(marker=ifelse(elapsed_months<1,"pre-covid","post-covid"),
+         marker=factor(marker,levels=c("pre-covid","post-covid")))%>%
+  ggplot(.)+mytheme+scale_color_nejm()+scale_fill_nejm()+
+  scale_x_continuous(limits=c(-73,20),breaks=c(-73,-62,-48,-36,-24,-12,0,12,20))+
+  geom_col(aes(x=elapsed_months,y=`Observed Deaths`,fill=marker),width=0.7,alpha=0.8)+
+  geom_line(aes(x=elapsed_months,y=`Expected Deaths`),color="black",size=1)+
+  ggtitle("Liver")+
+   theme(plot.title=element_text(hjust=0.5,size=10,face="bold"),legend.text=element_text(size=8))+
+  xlab("months from March 1, 2020")+
+  ylab("Deaths")+theme(legend.key.width= unit(0.4,"cm"),
+                       legend.key.height = unit(0.4,"cm"),
+                       legend.position=c(0.33,0.8)))
+
+ggsave(plot=fig1_LI,"fig1_LI.tiff",
+       dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+# LUNG
+(fig1_LU<-EM_SAFwCALC_2112%>%
+  filter(GROUP=="GROUP1",between(elapsed_months,-73,20),SUBGROUP=="ORGAN LU")%>%
+  mutate(marker=ifelse(elapsed_months<1,"pre-covid","post-covid"),
+         marker=factor(marker,levels=c("pre-covid","post-covid")))%>%
+  ggplot(.)+mytheme+scale_color_nejm()+scale_fill_nejm()+
+  scale_x_continuous(limits=c(-73,20),breaks=c(-73,-62,-48,-36,-24,-12,0,12,20))+
+  geom_col(aes(x=elapsed_months,y=`Observed Deaths`,fill=marker),width=0.7,alpha=0.8)+
+  geom_line(aes(x=elapsed_months,y=`Expected Deaths`),color="black",size=1)+
+  ggtitle("Liver")+
+   theme(plot.title=element_text(hjust=0.5,size=10,face="bold"),legend.text=element_text(size=8))+
+  xlab("months from March 1, 2020")+
+  ylab("Deaths")+theme(legend.key.width= unit(0.4,"cm"),
+                       legend.key.height = unit(0.4,"cm"),
+                       legend.position=c(0.33,0.8)))
+ggsave(plot=fig1_LU,"fig1_LU.tiff",
+       dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+
+(fig1<-plot_grid(fig1_HR,fig1_KI,fig1_LI,fig1_LU,labels="AUTO",ncol=2))
+ggsave(plot=fig1,"fig1.tiff",dpi=300,width=162,height=162,units="mm",bg="transparent")
+}
+
+fig1()
+
+# all organs and US
+
+print.data.frame(EM_ALL%>%filter(GROUP=="GROUP1",elapsed_months==20,SUBGROUP%in%c("United StatesGROUP1","ORGAN HR","ORGAN KI","ORGAN LI","ORGAN LU"))%>%
+    select(SUBGROUP,
+           `Cumulative excess deaths 10k`,
+           `Cumulative excess deaths 10k lwr`,
+           `Cumulative excess deaths 10k upr`)%>%
+      arrange(`Cumulative excess deaths 10k`))
+
+print.data.frame(EM_ALL%>%filter(GROUP=="GROUP5",elapsed_months==20,SUBGROUP%in%c("KI GRAFT Y","KI GRAFT N"))%>%
+    select(SUBGROUP,
+           `Cumulative excess deaths 10k`,
+           `Cumulative excess deaths 10k lwr`,
+           `Cumulative excess deaths 10k upr`)%>%
+      arrange(`Cumulative excess deaths 10k`))
+
+print.data.frame(EM_ALL%>%filter(GROUP=="GROUP2",elapsed_months==20,SUBGROUP%in%c("AGE 45-64"))%>%
+    select(SUBGROUP,SOURCE,
+           `Cumulative excess deaths 10k`,
+           `Cumulative excess deaths 10k lwr`,
+           `Cumulative excess deaths 10k upr`)%>%
+      arrange(`Cumulative excess deaths 10k`))
+
+
+fig2<-function(){
+(fig2a<-EM_ALL%>%filter(GROUP=="GROUP1",
+                        between(elapsed_months,1,20),
+                        SUBGROUP%in%c("United StatesGROUP1","ORGAN HR","ORGAN KI","ORGAN LI","ORGAN LU"))%>%
+    mutate(SUBGROUP=case_when(
+      SUBGROUP=="ORGAN HR"~"Heart",SUBGROUP=="ORGAN KI"~"Kidney",
+      SUBGROUP=="ORGAN LI"~"Liver",SUBGROUP=="ORGAN LU"~"Lung",
+      SUBGROUP=="United StatesGROUP1"~"United States"))%>%
+    ggplot(.)+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1,alpha=0.8)+
+    scale_color_jama()+scale_fill_jama()+
+    ylab("Cumulative excess \nmortality (per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-10,200),breaks=seq(0,200,25))+
+    xlab("\nElapsed months")+
+    mytheme)
+
+ggsave(plot=fig2a,"fig2a.tiff",dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+(fig2b<-EM_ALL%>%filter(GROUP=="GROUP5",
+                        between(elapsed_months,1,20),
+                        SUBGROUP%in%c("KI GRAFT Y","KI GRAFT N"))%>%
+    mutate(SUBGROUP=case_when(
+      SUBGROUP=="KI GRAFT Y"~"Functioning kidney",SUBGROUP=="KI GRAFT N"~"Failed kidney"))%>%
+    ggplot(.)+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1,alpha=0.8)+
+    scale_color_jama()+scale_fill_jama()+
+    ylab("Cumulative excess \nmortality (per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-10,200),breaks=seq(0,200,25))+
+    xlab("\nElapsed months")+mytheme+theme(legend.position=c(0.24,0.95)))
+
+ggsave(plot=fig2b,"fig2b.tiff",dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+(fig2c<-EM_ALL%>%filter(GROUP=="GROUP2",
+                        between(elapsed_months,1,20),
+                        SUBGROUP%in%c("AGE 45-64"))%>%
+    ggplot(.)+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SOURCE),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SOURCE),size=1,alpha=0.8)+
+    scale_color_jama()+scale_fill_jama()+
+    ylab("Cumulative excess \nmortality (per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-10,200),breaks=seq(0,200,25))+
+    xlab("\nElapsed months")+mytheme+theme(legend.spacing.y = unit(1,"cm")))
+
+ggsave(plot=fig2c,"fig2c.tiff",dpi=300,width=81,height=81,units="mm",bg="transparent")
+(fig2<-plot_grid(fig2a,fig2b,fig2c,labels="AUTO",ncol=1))
+ggsave(plot=fig2,"fig2.tiff",dpi=300,width=120,height=200,units="mm",bg="transparent")
+
+}
+fig2()
+
+print.data.frame(EM_ALL%>%filter(GROUP=="GROUP3",elapsed_months==20)%>%
+    select(SUBGROUP,SOURCE,
+           `Cumulative excess deaths 10k`,
+           `Cumulative excess deaths 10k lwr`,
+           `Cumulative excess deaths 10k upr`)%>%
+      arrange(`Cumulative excess deaths 10k`))
+
+print.data.frame(EM_ALL%>%filter(GROUP=="GROUP4",elapsed_months==20)%>%
+    select(SUBGROUP,SOURCE,
+           `Cumulative excess deaths 10k`,
+           `Cumulative excess deaths 10k lwr`,
+           `Cumulative excess deaths 10k upr`)%>%
+      arrange(`Cumulative excess deaths 10k`))
+
+fig3<-function(){
+  
+(fig3a<-EM_ALL%>%filter(GROUP=="GROUP3",
+                        between(elapsed_months,1,20),
+                        ((SOURCE=="CDC"&SUBGROUP=="RACE Black")|
+                        (SOURCE=="SRTR"&(SUBGROUP=="RACE Black"|SUBGROUP=="RACE White"))))%>%
+   mutate(SUBGROUP=case_when(
+     SOURCE=="CDC"&SUBGROUP=="RACE Black"~"Black (US)",
+     SOURCE=="SRTR"&SUBGROUP=="RACE Black"~"Black (SRTR)",
+     SOURCE=="SRTR"&SUBGROUP=="RACE White"~"White (SRTR)"))%>%
+    ggplot(.)+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1,alpha=0.8)+
+    scale_color_jama()+scale_fill_jama()+
+    ylab("Cumulative excess mortality\n(per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-10,300),breaks=seq(0,300,25))+
+    xlab("\nElapsed months")+mytheme+theme(legend.spacing.y = unit(1,"cm")))
+
+ggsave(plot=fig3a,"fig3a.tiff",dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+
+(fig3b<-EM_ALL%>%filter(GROUP=="GROUP4",
+                        between(elapsed_months,1,20),
+                        ((SOURCE=="CDC"&SUBGROUP=="ETHNICITY LATINO")|
+                        (SOURCE=="SRTR"&(SUBGROUP=="ETHNICITY LATINO"|SUBGROUP=="ETHNICITY NLATIN"))))%>%
+   mutate(SUBGROUP=case_when(
+     SOURCE=="CDC"&SUBGROUP=="ETHNICITY LATINO"~"Hispanic (US)",
+     SOURCE=="SRTR"&SUBGROUP=="ETHNICITY LATINO"~"Hispanic (SRTR)",
+     SOURCE=="SRTR"&SUBGROUP=="ETHNICITY NLATIN"~"Non-Hispanic (SRTR)"))%>%
+    ggplot(.)+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1,alpha=0.8)+
+    scale_color_jama()+scale_fill_jama()+
+    ylab("Cumulative excess mortality\n(per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-10,300),breaks=seq(0,300,25))+
+    xlab("\nElapsed months")+mytheme+theme(legend.spacing.y = unit(1,"cm")))
+
+ggsave(plot=fig3b,"fig3b.tiff",dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+(fig3<-plot_grid(fig3a,fig3b,labels="AUTO",ncol=1))
+ggsave(plot=fig3,"fig3.tiff",dpi=300,width=120,height=200,units="mm",bg="transparent")
+}
+fig3()
+
+# spatial and temporal trends
+
+figure4<-function(){
+
+(fig4<-EM_ALL%>%
+    filter(GROUP=="GROUP10",between(elapsed_months,1,20))%>%
+    mutate(SUBGROUP=as.character(SUBGROUP),
+           SUBGROUP2=ifelse(SOURCE=="CDC",paste("REGION",SUBGROUP),SUBGROUP),
+           SUBGROUP2=factor(SUBGROUP2))%>%
+    mutate(SUBGROUP2=fct_relevel(SUBGROUP2,"REGION 1","REGION 2","REGION 3",
+                                 "REGION 4","REGION 5","REGION 6",
+                                 "REGION 7","REGION 8","REGION 9",
+                                 "REGION 10","REGION 11"))%>%
+    ggplot(.)+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SOURCE),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SOURCE),size=1,alpha=0.8)+
+    scale_color_jama()+scale_fill_jama()+
+    ylab("Cumulative excess mortality\n(per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-10,250),breaks=seq(0,250,25))+
+    xlab("\nElapsed months")+mytheme+
+   theme(legend.spacing.y = unit(1,"cm"),
+         strip.text = element_text(face="bold",size=10,family="Open Sans"),
+         legend.position = c(0.05,0.99))+
+    facet_wrap(.~SUBGROUP2,scales="free",ncol=3))
+
+ggsave(plot=fig4,"fig4.tiff",dpi=300,width=11,height=8,units="in",bg="transparent")
+  
+print.data.frame(EM_ALL%>%
+    filter(GROUP=="GROUP10",elapsed_months==20)%>%
+    mutate(SUBGROUP=as.character(SUBGROUP),
+           SUBGROUP2=ifelse(SOURCE=="CDC",paste("REGION",SUBGROUP),SUBGROUP),
+           SUBGROUP2=factor(SUBGROUP2))%>%
+    mutate(SUBGROUP2=fct_relevel(SUBGROUP2,"REGION 1","REGION 2","REGION 3",
+                                 "REGION 4","REGION 5","REGION 6",
+                                 "REGION 7","REGION 8","REGION 9",
+                                 "REGION 10","REGION 11"))%>%
+    select(SUBGROUP2,SOURCE,
+           `Cumulative excess deaths 10k`,
+           `Cumulative excess deaths 10k lwr`,
+           `Cumulative excess deaths 10k upr`)%>%
+      arrange(desc(`Cumulative excess deaths 10k`),SUBGROUP2))
+
+print.data.frame(EM_ALL%>%
+    filter(GROUP=="GROUP10",between(elapsed_months,18,20))%>%
+    mutate(SUBGROUP=as.character(SUBGROUP),
+           SUBGROUP2=ifelse(SOURCE=="CDC",paste("REGION",SUBGROUP),SUBGROUP),
+           SUBGROUP2=factor(SUBGROUP2))%>%
+      filter(SOURCE=="SRTR")%>%
+    select(SUBGROUP2,SOURCE,elapsed_months,
+           `Cumulative excess deaths 10k`,
+           `Cumulative excess deaths 10k lwr`,
+           `Cumulative excess deaths 10k upr`)%>%
+      arrange(SUBGROUP2))
+
+(table3<-EM_ALL%>%
+    filter(elapsed_months==20)%>%
+    mutate(order=case_when(
+      SUBGROUP=="ORGAN HR"~1,
+      SUBGROUP=="ORGAN KI"~2,
+      SUBGROUP=="ORGAN LI"~3,
+      SUBGROUP=="ORGAN LU"~4,
+      SUBGROUP=="United StatesGROUP1"~5,
+      SUBGROUP=="KI GRAFT Y"~6,
+      SUBGROUP=="KI GRAFT N"~7,
+      SUBGROUP=="HR 45-64"~8,
+      SUBGROUP=="KI 45-64"~9,
+      SUBGROUP=="LI 45-64"~10,
+      SUBGROUP=="LU 45-64"~11,
+      SUBGROUP=="AGE 45-64"&SOURCE=="SRTR"~12,
+      SUBGROUP=="AGE 45-64"&SOURCE=="CDC"~13,
+      SUBGROUP=="RACE White"&SOURCE=="SRTR"~14,
+      SUBGROUP=="RACE Black"&SOURCE=="SRTR"~15,
+      SUBGROUP=="RACE Black"&SOURCE=="CDC"~16,
+      SUBGROUP=="ETHNICITY NLATIN"&SOURCE=="SRTR"~17,
+      SUBGROUP=="ETHNICITY LATINO"&SOURCE=="SRTR"~18,
+      SUBGROUP=="ETHNICITY LATINO"&SOURCE=="CDC"~19))%>%
+    mutate(
+      col1=`Cumulative observed deaths`,
+      col2=paste(round(`Cumulative expected deaths`,1),"(",
+                 round(`Cumulative expected deaths lwr`,1),",",
+                 round(`Cumulative expected deaths upr`,1),
+                 ")"),
+      col3=paste(round(`Cumulative excess deaths`,1),"(",
+                 round(`Cumulative excess deaths lwr`,1),",",
+                 round(`Cumulative excess deaths upr`,1),
+                 ")"),
+      col4=paste(round(`Cumulative excess deaths 10k`,1),"(",
+                 round(`Cumulative excess deaths 10k lwr`,1),",",
+                 round(`Cumulative excess deaths 10k upr`,1),
+                 ")"),
+      col5=paste(`Cumulative observed deaths from COVID-19`,
+                 "(",
+                 round(100*`Cumulative observed deaths from COVID-19`/`Cumulative observed deaths`,1),
+                 "%)"),
+      col6=`Excess mortality from COVID-19(%)`)%>%
+    arrange(order)%>%
+    select(SUBGROUP,SOURCE,col1,col2,col3,col4,col5,col6))
+
+write.csv(table3,file="table3.csv")
+
+
+(table4col1<-EM_ALL%>%
+    filter(GROUP=="GROUP10",elapsed_months==20)%>%
+    mutate(SUBGROUP=as.character(SUBGROUP),
+           SUBGROUP2=ifelse(SOURCE=="CDC",paste("REGION",SUBGROUP),SUBGROUP),
+           SUBGROUP2=factor(SUBGROUP2))%>%
+    mutate(order=case_when(
+      SUBGROUP2=="REGION 1"&SOURCE=="SRTR"~1,
+      SUBGROUP2=="REGION 2"&SOURCE=="SRTR"~2,
+      SUBGROUP2=="REGION 3"&SOURCE=="SRTR"~3,
+      SUBGROUP2=="REGION 4"&SOURCE=="SRTR"~4,
+      SUBGROUP2=="REGION 5"&SOURCE=="SRTR"~5,
+      SUBGROUP2=="REGION 6"&SOURCE=="SRTR"~6,
+      SUBGROUP2=="REGION 7"&SOURCE=="SRTR"~7,
+      SUBGROUP2=="REGION 8"&SOURCE=="SRTR"~8,
+      SUBGROUP2=="REGION 9"&SOURCE=="SRTR"~9,
+      SUBGROUP2=="REGION 10"&SOURCE=="SRTR"~10,
+      SUBGROUP2=="REGION 11"&SOURCE=="SRTR"~11))%>%
+    filter(elapsed_months==20)%>%
+    mutate(
+      col1=paste(round(`Cumulative excess deaths 10k`,1),
+                 "(",
+                 round(`Cumulative excess deaths 10k lwr`,1),
+                 ",",
+                 round(`Cumulative excess deaths 10k upr`,1),
+                 ")"))%>%
+    arrange(order)%>%select(SUBGROUP2,SOURCE,col1))
+    
+write.csv(table4col1,file="table4col1.csv")
+
+(table4col2<-EM_ALL%>%
+    filter(GROUP=="GROUP10",elapsed_months==20)%>%
+    mutate(SUBGROUP=as.character(SUBGROUP),
+           SUBGROUP2=ifelse(SOURCE=="CDC",paste("REGION",SUBGROUP),SUBGROUP),
+           SUBGROUP2=factor(SUBGROUP2))%>%
+    mutate(order=case_when(
+      SUBGROUP2=="REGION 1"&SOURCE=="CDC"~1,
+      SUBGROUP2=="REGION 2"&SOURCE=="CDC"~2,
+      SUBGROUP2=="REGION 3"&SOURCE=="CDC"~3,
+      SUBGROUP2=="REGION 4"&SOURCE=="CDC"~4,
+      SUBGROUP2=="REGION 5"&SOURCE=="CDC"~5,
+      SUBGROUP2=="REGION 6"&SOURCE=="CDC"~6,
+      SUBGROUP2=="REGION 7"&SOURCE=="CDC"~7,
+      SUBGROUP2=="REGION 8"&SOURCE=="CDC"~8,
+      SUBGROUP2=="REGION 9"&SOURCE=="CDC"~9,
+      SUBGROUP2=="REGION 10"&SOURCE=="CDC"~10,
+      SUBGROUP2=="REGION 11"&SOURCE=="CDC"~11))%>%
+    filter(elapsed_months==20)%>%
+    mutate(
+      col1=paste(round(`Cumulative excess deaths 10k`,1),
+                 "(",
+                 round(`Cumulative excess deaths 10k lwr`,1),
+                 ",",
+                 round(`Cumulative excess deaths 10k upr`,1),
+                 ")"))%>%
+    arrange(order)%>%
+    select(SUBGROUP2,SOURCE,col1))
+
+write.csv(table4col2,file="table4col2.csv")
+
+}
+
+figure4()
+
+
+
+(z<-table3<-EM_ALL%>%
+    filter(between(elapsed_months,20,20))%>%
+    mutate(order=case_when(
+      SUBGROUP=="ORGAN HR"~1,
+      SUBGROUP=="ORGAN KI"~2,
+      SUBGROUP=="ORGAN LI"~3,
+      SUBGROUP=="ORGAN LU"~4,
+      SUBGROUP=="United StatesGROUP1"~5))%>%
+    mutate(
+      col1=`Cumulative observed deaths`,
+      col2=paste(round(`Cumulative expected deaths`,1),"(",
+                 round(`Cumulative expected deaths lwr`,1),",",
+                 round(`Cumulative expected deaths upr`,1),
+                 ")"),
+      col3=paste(round(`Cumulative excess deaths`,1),"(",
+                 round(`Cumulative excess deaths lwr`,1),",",
+                 round(`Cumulative excess deaths upr`,1),
+                 ")"),
+      col4=paste(round(`Cumulative excess deaths 10k`,1),"(",
+                 round(`Cumulative excess deaths 10k lwr`,1),",",
+                 round(`Cumulative excess deaths 10k upr`,1),
+                 ")"),
+      col5=`Cumulative observed deaths from COVID-19`,
+      col6=`Excess mortality from COVID-19(%)`)%>%
+    arrange(order)%>%
+    select(SUBGROUP,SOURCE,elapsed_months,ds,col1,col2,col3,col4,col5,col6))
+
+# supplementary figure 2
+
+p<-EM_ALL%>%filter((GROUP=="GROUP7"|GROUP=="GROUP8"),between(elapsed_months,1,20))%>%
+  select(GROUP,SUBGROUP,ds,`Cumulative excess deaths 10k`)
+
+(supfig3<-EM_ALL%>%
+    filter(GROUP=="GROUP7",between(elapsed_months,1,20))%>%
+    mutate(SUBGROUP2=case_when(
+      SUBGROUP=="HR Asian"~"Asian (Heart)",
+      SUBGROUP=="LI Asian"~"Asian (Liver)",
+      SUBGROUP=="KI Asian"~"Asian (Kidney)",
+      SUBGROUP=="LU Asian"~"Asian (Lung)",
+      SUBGROUP=="HR White"~"White (Heart)",
+      SUBGROUP=="LI White"~"White (Liver)",
+      SUBGROUP=="KI White"~"White (Kidney)",
+      SUBGROUP=="LU White"~"White (Lung)",
+      SUBGROUP=="HR Black"~"Black (Heart)",
+      SUBGROUP=="LI Black"~"Black (Liver)",
+      SUBGROUP=="KI Black"~"Black (Kidney)",
+      SUBGROUP=="LU Black"~"Black (Lung)"),
+      
+      SUBGROUP3=factor(case_when(
+        SUBGROUP=="HR Asian"~"Heart",
+        SUBGROUP=="LI Asian"~"Liver",
+        SUBGROUP=="KI Asian"~"Kidney",
+        SUBGROUP=="LU Asian"~"Lung",
+        SUBGROUP=="HR White"~"Heart",
+        SUBGROUP=="LI White"~"Liver",
+        SUBGROUP=="KI White"~"Kidney",
+        SUBGROUP=="LU White"~"Lung",
+        SUBGROUP=="HR Black"~"Heart",
+        SUBGROUP=="LI Black"~"Liver",
+        SUBGROUP=="KI Black"~"Kidney",
+        SUBGROUP=="LU Black"~"Lung")))%>%
+    filter(!is.na(SUBGROUP2))%>%
+    ggplot()+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP2),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP2),size=1,alpha=0.8)+
+    ylab("Cumulative excess \nmortality (per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-150,400),breaks=seq(-150,400,25))+
+    xlab("\nElapsed months")+facet_wrap(.~SUBGROUP3)+
+    mytheme)
+
+ggsave(plot=supfig3,"supfig3.tiff",dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+(supfig3<-EM_ALL%>%filter(GROUP=="GROUP6"|GROUP=="GROUP2",
+                        between(elapsed_months,1,20),
+                        ((SUBGROUP=="AGE 45-64"&SOURCE=="CDC")|
+                        SUBGROUP%in%c("HR 45-64","KI 45-64","LI 45-64","LU 45-64")))%>%
+    mutate(SUBGROUP=case_when(
+      SUBGROUP=="HR 45-64"~"Heart",SUBGROUP=="KI 45-64"~"Kidney",
+      SUBGROUP=="LI 45-64"~"Liver",SUBGROUP=="LU 45-64"~"Lung",
+      SUBGROUP=="AGE 45-64"~"United States"))%>%
+    ggplot(.)+
+    geom_point(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1.6)+
+    geom_line(aes(x=elapsed_months,y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=1,alpha=0.8)+
+    scale_color_jama()+scale_fill_jama()+
+    ylab("Cumulative excess \nmortality (per 10,000)")+
+    scale_x_continuous(limits=c(1,20),breaks=seq(1,20,1))+
+    scale_y_continuous(limits=c(-10,250),breaks=seq(0,250,25))+
+    xlab("\nElapsed months")+
+    mytheme)
+
+ggsave(plot=supfig2,"supfig1.tiff",dpi=300,width=81,height=81,units="mm",bg="transparent")
+
+
+(suptable1<-EM_ALL%>%
+  filter(GROUP=="GROUP7"|GROUP=="GROUP8")%>%
+  filter(elapsed_months==20)%>%
+  mutate(ORDER=case_when(
+    SUBGROUP=="HR Asian"~1,
+    SUBGROUP=="HR Black"~2,
+    SUBGROUP=="HR White"~3,
+    SUBGROUP=="HR LATINO"~4,
+    SUBGROUP=="HR NLATIN"~5,
+    
+    SUBGROUP=="KI Asian"~6,
+    SUBGROUP=="KI Black"~7,
+    SUBGROUP=="KI White"~8,
+    SUBGROUP=="KI LATINO"~9,
+    SUBGROUP=="KI NLATIN"~10,
+    
+    SUBGROUP=="LI Asian"~11,
+    SUBGROUP=="LI Black"~12,
+    SUBGROUP=="LI White"~13,
+    SUBGROUP=="LI LATINO"~14,
+    SUBGROUP=="LI NLATIN"~15,
+    
+    SUBGROUP=="LU Asian"~16,
+    SUBGROUP=="LU Black"~17,
+    SUBGROUP=="LU White"~18,
+    SUBGROUP=="LU LATINO"~19,
+    SUBGROUP=="LU NLATIN"~20),
+    
+    NAME=case_when(
+      ORDER%in%c(1,6,11,16)~"Asian",
+      ORDER%in%c(2,7,12,17)~"Black",
+      ORDER%in%c(3,8,13,18)~"White",
+      ORDER%in%c(4,9,14,19)~"Hispanic",
+      ORDER%in%c(5,10,15,20)~"Non-Hispanic"))%>%
+  filter(!is.na(ORDER))%>%
+  mutate(
+      col1=`Cumulative observed deaths`,
+      col2=paste(round(`Cumulative expected deaths`,1),"(",
+                 round(`Cumulative expected deaths lwr`,1),",",
+                 round(`Cumulative expected deaths upr`,1),
+                 ")"),
+      col3=paste(round(`Cumulative excess deaths`,1),"(",
+                 round(`Cumulative excess deaths lwr`,1),",",
+                 round(`Cumulative excess deaths upr`,1),
+                 ")"),
+      col4=paste(round(`Cumulative excess deaths 10k`,1),"(",
+                 round(`Cumulative excess deaths 10k lwr`,1),",",
+                 round(`Cumulative excess deaths 10k upr`,1),
+                 ")"),
+      col5=paste(`Cumulative observed deaths from COVID-19`,
+                 "(",
+                 round(100*`Cumulative observed deaths from COVID-19`/`Cumulative observed deaths`,1),
+                 "%)"),
+      col6=`Excess mortality from COVID-19(%)`)%>%
+    arrange(ORDER)%>%
+    select(ORDER,SUBGROUP,col1,col2,col3,col4,col5,col6))
+  
+
+write.csv(suptable1,file="suptable1.csv")
+
+```
+
+
+
+
+
+

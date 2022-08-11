@@ -1,0 +1,41 @@
+---
+title: "Guides for coding and plotting"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r PACKAGES TIME THEME}
+Sys.setenv(TZ="UTC")
+library(pacman)
+p_load(dplyr,scales,splines,lubridate,janitor,
+       readxl,ggsci,ggthemes,RSocrata,tidyr,
+       forcats,cowplot,haven,ggplot2,rmarkdown,prophet,magrittr,
+       showtext,here,stringr,tidyverse,cowplot,writexl)
+```
+
+```{r PLOTS}
+
+font_add_google("Assistant")
+font_add_google("Open Sans")
+showtext_opts(dpi=300)
+showtext_auto()
+
+mytheme<-theme_minimal()+
+  theme(
+  legend.title = element_blank(),
+  axis.text=element_text(face="bold",family="Open Sans",size=10),
+  axis.title=element_text(face="bold",family="Open Sans",size=12),
+  panel.grid.minor.x=element_blank(),
+  panel.grid.minor.y=element_blank(),
+  legend.text=element_text(size=10,face="bold",family="Open Sans"),
+  legend.position=c(0.15,0.95),
+  legend.key.size = unit(.5,"line"),
+  legend.key.width = unit(.75,"line"),
+  legend.key.height = unit(.5,"line"),
+  legend.spacing.y=unit(.5,"in"))
+
+
+
+```
+

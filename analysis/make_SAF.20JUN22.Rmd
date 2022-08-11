@@ -1,0 +1,266 @@
+---
+title: " MAKE SA 20 JUNE 2022"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+
+pubsafhr2112<-read_sas(here("dec2021_saf_release","tx_hr.sas7bdat"))
+pubsafli2112<-read_sas(here("dec2021_saf_release","tx_li.sas7bdat"))
+pubsaflu2112<-read_sas(here("dec2021_saf_release","tx_lu.sas7bdat"))
+pubsafki2112<-read_sas(here("dec2021_saf_release","tx_ki.sas7bdat"))
+pubsaf2112<-bind_rows(pubsafhr2112,pubsafli2112,pubsaflu2112,pubsafki2112)
+save(pubsaf2112,file="pubsaf2112.rdata")
+
+pubsafinst2112<-read_sas(here("dec2021_saf_release","institution.sas7bdat"))%>%
+  dplyr::select(CTR_CD,REGION,PRIMARY_STATE)%>%
+  mutate(REGION=factor(REGION),CTR_CD=factor(CTR_CD),PRIMARY_STATE=factor(PRIMARY_STATE))
+
+load("pubsaf2112.rdata")
+
+pubsaf2112v2<-function(){
+
+  pubsaf2112v2<<-pubsaf2112%>%
+  filter(ORG_TY%in%c("KI","LU","LI","HR"))%>%
+  mutate(across(c(PERS_ID,ORG_TY,CAN_GENDER,CAN_RACE_SRTR,
+                  CAN_ETHNICITY_SRTR,REC_GRAFT_STAT,REC_CTR_CD,REC_PERM_STATE),
+                factor))%>%
+  group_by(PERS_ID)%>%
+  mutate(DEATH_DATE=pmin(PERS_SSA_DEATH_DT,
+                         PERS_OPTN_DEATH_DT,
+                         TFL_DEATH_DT,na.rm=T))%>%
+  arrange(PERS_ID,REC_TX_DT)%>%
+  filter(REC_TX_DT==min(REC_TX_DT))%>%
+  ungroup()%>%
+  mutate(DEATH_EVENT=ifelse(!is.na(DEATH_DATE),"DEAD","ALIVE"))%>%
+  mutate(ds=(ceiling_date(DEATH_DATE,unit="month")-days(1)),
+         AGE_DEATH=floor(REC_AGE_AT_TX+(time_length(difftime(DEATH_DATE,REC_TX_DT),"years"))),
+         AGE_GROUP=as.factor(case_when(
+    REC_AGE_AT_TX<25~"<25",
+    REC_AGE_AT_TX>=25&REC_AGE_AT_TX<=44~"25-44",
+    REC_AGE_AT_TX>=45&REC_AGE_AT_TX<=64~"45-64",
+    REC_AGE_AT_TX>=65~"65+")),
+    AGE_GROUP=fct_relevel(AGE_GROUP,"<25","25-44","45-64","65+"))%>%
+    
+    mutate(COVID_DEATH=case_when(
+           ORG_TY=="HR"&TFL_COD==2804~1,
+           ORG_TY=="LU"&TFL_COD==2804~1,
+           ORG_TY=="LI"&TFL_COD==4959~1,
+           ORG_TY=="KI"&TFL_COD==3916~1,
+           TRUE~0),
+         
+        CAN_ETHINICITY_SRTR=factor(case_when(
+          CAN_ETHNICITY_SRTR=="LATINO"~"Hispanic",
+          CAN_ETHNICITY_SRTR=="NLATIN"~"Non-Hispanic")),
+        
+        CAN_RACE_SRTR=factor(case_when(
+          CAN_RACE_SRTR=="ASIAN"~"Asian",
+          CAN_RACE_SRTR=="BLACK"~"Black",
+          CAN_RACE_SRTR=="MULTI"~"Other",
+          CAN_RACE_SRTR=="NATIVE"~"Other",
+          CAN_RACE_SRTR=="PACIFIC"~"Other",
+          CAN_RACE_SRTR=="WHITE"~"White")))%>%
+    
+  dplyr::select(ORG_TY,PERS_ID,REC_TX_DT,DEATH_EVENT,DEATH_DATE,CAN_GENDER,
+         ds,REC_AGE_AT_TX,AGE_GROUP,REC_CTR_CD,
+         REC_GRAFT_STAT,COVID_DEATH,CAN_ETHNICITY_SRTR,CAN_RACE_SRTR,
+         REC_COD,REC_COD2,REC_COD3,TFL_COD,AGE_DEATH,REC_PERM_STATE)%>%
+   
+    distinct(PERS_ID,REC_TX_DT,.keep_all=T)%>% 
+    
+  left_join(.,pubsafinst2112,by=c("REC_CTR_CD"="CTR_CD"))%>%
+  mutate(GROUP1=factor(paste("ORGAN",ORG_TY)),
+         GROUP2=factor(paste("AGE",AGE_GROUP)),
+         GROUP3=factor(paste("RACE",CAN_RACE_SRTR)),
+         GROUP4=factor(paste("ETHNICITY",CAN_ETHNICITY_SRTR)),
+         GROUP5=factor(paste("KI GRAFT",REC_GRAFT_STAT)),
+         GROUP6=factor(paste(ORG_TY,AGE_GROUP)),
+         GROUP7=factor(paste(ORG_TY,CAN_RACE_SRTR)),
+         GROUP8=factor(paste(ORG_TY,CAN_ETHNICITY_SRTR)),
+         GROUP9=factor(paste(ORG_TY,REGION)),
+         GROUP10=factor(paste("REGION",REGION)),
+         GROUP11=factor("SRTR ALL"),
+         GROUP12=ifelse(REC_CTR_CD=="MOBH","MOBH","OTHER"),
+         GROUP12=factor(GROUP12),
+         GROUP13=factor(paste(GROUP12,GROUP1)),
+         GROUP14=factor(REC_PERM_STATE))%>%
+  pivot_longer(cols=starts_with("GROUP"),names_to="GROUP",values_to="SUBGROUP")%>%
+    
+    distinct(PERS_ID, REC_TX_DT,GROUP,SUBGROUP,.keep_all=T)%>%
+    filter(REC_TX_DT<=as.Date("2021-10-31"))%>%
+    filter(is.na(ds)|between(ds,as.Date("2014-01-01"),as.Date("2021-10-31")))
+  
+  save(pubsaf2112v2,file="pubsaf2112v2.rdata")
+  
+}
+
+pubsaf2112v2()
+
+save(pubsafhr2112,file="pubsafhr2112.rdata")
+save(pubsafli2112,file="pubsafli2112.rdata")
+save(pubsafki2112,file="pubsafki2112.rdata")
+save(pubsaflu2112,file="pubsaflu2112.rdata")
+rm(pubsafhr2112,pubsafki2112,pubsaflu2112,pubsafli2112,pubsafinst2112)
+
+excess_mortality<-function(){
+
+date.list<<-ceiling_date(seq(ymd("2014-02-01"),ymd("2021-12-31"),"month")-days(1))%>%as.Date
+date.list2<<-floor_date(seq(ymd("2014-01-01"),ymd("2021-12-31"),"month"))%>%as.Date
+  
+  mortality_counts<<-pubsaf2112v2%>%
+  group_by(ds,GROUP,SUBGROUP)%>%
+  mutate(y=length(PERS_ID),
+         y_c19=sum(COVID_DEATH))%>%
+  ungroup()%>%
+  complete(ds)%>%
+  distinct(ds,y,y_c19,GROUP,SUBGROUP)%>%
+  mutate(elapsed_months=interval("2019-12-31",ds)%/%months(1))%>%
+  filter(!is.na(ds))%>%
+  dplyr::select(GROUP,SUBGROUP,ds,elapsed_months,y,y_c19,)%>%
+  arrange(GROUP,SUBGROUP,ds,elapsed_months)%>%
+  distinct(.keep_all=T)%>%
+    mutate(GROUP=factor(GROUP))
+
+tmp<<-data.frame()
+
+predictSAF<-function(){
+for(k in unique(mortality_counts$SUBGROUP)){
+tmp2<-mortality_counts%>%filter(elapsed_months<=0,SUBGROUP==k)
+srtr_model<-prophet(tmp2)
+tmp3<-mortality_counts%>%filter(SUBGROUP==k)
+srtr_forecast<-predict(srtr_model,tmp3)%>%tibble()%>%bind_cols(.,tmp3)
+tmp<<-bind_rows(tmp,srtr_forecast)}}
+predictSAF()
+
+tmp<<-tmp%>%mutate(ds=ymd(ds...1))%>%
+  dplyr::select(GROUP,SUBGROUP,ds,elapsed_months,y,y_c19,yhat_lower,yhat,yhat_upper)
+
+tmp2<<-data.frame()
+  prevalence_fxn<-function(){
+    for (j in 1:length(date.list2)){
+      tmp3<-pubsaf2112v2%>%group_by(SUBGROUP)%>%
+        filter(REC_TX_DT<date.list2[j],(DEATH_DATE>date.list2[j]|is.na(DEATH_DATE)))%>%
+        count(name="population")%>%ungroup()%>%bind_cols(.,date.list2[j])
+      tmp2<<-rbind(tmp2,tmp3)
+    }
+  }
+  prevalence_fxn()
+  
+  prevalence<<-tmp2%>%rename(ds=...3)%>%
+    mutate(ds=ceiling_date(ds,"month")-days(1),
+           elapsed_months=interval("2019-12-31",ds)%/%months(1))%>%
+    dplyr::select(SUBGROUP,ds,elapsed_months,population)%>%distinct()
+  
+EM_SAF_2112<<-left_join(tmp,prevalence,by=c("SUBGROUP","ds","elapsed_months"))
+save(EM_SAF_2112,file="EM_SAF_2112.rdata")
+
+load(file="EM_SAF_2112.rdata")
+
+EM_SAFwCALC_2112<<-EM_SAF_2112%>%
+  group_by(SUBGROUP)%>%
+  mutate(
+    elapsed_months=elapsed_months-2,
+    percapita=10000,
+    `Observed Deaths`=y,
+    `Expected Deaths`=yhat,
+    `O:E`=y/yhat,
+    `Cumulative observed deaths`=cumsum(ifelse(elapsed_months>0,y,0)),
+    `Cumulative observed deaths from COVID-19`=cumsum(ifelse(elapsed_months>0,y_c19,0)),
+    `Cumulative expected deaths`=cumsum(ifelse(elapsed_months>0,yhat,0)),
+    `Cumulative expected deaths lwr`=cumsum(ifelse(elapsed_months>0,yhat_lower,0)),
+    `Cumulative expected deaths upr`=cumsum(ifelse(elapsed_months>0,yhat_upper,0)),
+    `Excess Deaths`=y-yhat,
+    `Cumulative excess deaths`=cumsum(ifelse(elapsed_months>0,y-yhat,0)),
+    `Cumulative excess deaths lwr`=cumsum(ifelse(elapsed_months>0,y-yhat_upper,0)),
+    `Cumulative excess deaths upr`=cumsum(ifelse(elapsed_months>0,y-yhat_lower,0)),
+    `Cumulative excess deaths 10k`=cumsum(ifelse(elapsed_months>0,percapita*((y-yhat)/population),0)),
+    `Cumulative excess deaths 10k lwr`=cumsum(ifelse(elapsed_months>0,percapita*((y-yhat_upper)/population),0)),
+    `Cumulative excess deaths 10k upr`=cumsum(ifelse(elapsed_months>0,percapita*((y-yhat_lower)/population),0)),
+    `Excess mortality from COVID-19(%)`=paste0(round(100*(cumsum(y_c19)/`Cumulative excess deaths`),1),"%"))%>%
+    ungroup()%>%mutate(SOURCE=factor("SRTR"))
+
+save(EM_SAFwCALC_2112,file="EM_SAFwCALC_2112.rdata")
+
+}
+excess_mortality()
+
+rm(tmp,tmp2,prevalence,mortality_counts,date.list,date.list2)
+
+```
+
+```{r additional analysis}
+
+# analysis
+
+
+(EM_SAFwCALC_2112%>%
+    filter(GROUP=="GROUP10",elapsed_months>0)%>%
+    mutate(SUBGROUP=fct_relevel(SUBGROUP,"REGION 1","REGION 2","REGION 3",
+                                "REGION 4","REGION 5","REGION 6","REGION 7",
+                                "REGION 8","REGION 9","REGION 10"))%>%
+    ggplot(aes(x=elapsed_months))+
+    geom_line(aes(y=`Cumulative excess deaths 10k`),size=.5)+
+    geom_point(aes(y=`Cumulative excess deaths 10k`),size=2.2)+
+    theme_minimal()+
+    facet_wrap(.~SUBGROUP))
+ggquartz::apply_theme()
+swatch <- Polychrome::glasbey.colors(32)
+# ggthemr::ggthemr(ggthemr::define_palette(swatch = c(swatch[-1], swatch[-1])))
+
+mygraph_fxn<-function(x){
+  (EM_SAFwCALC_2112%>%filter(GROUP==x,between(elapsed_months,0,22),SUBGROUP!="RACE  NA",SUBGROUP!="RACE  Other")%>%
+  ggplot(aes(x=elapsed_months))+
+  geom_line(aes(y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=.75)+
+  geom_point(aes(y=`Cumulative excess deaths 10k`,color=SUBGROUP),size=3)+
+  # theme_minimal()+
+  scale_color_manual(values = c(swatch, swatch))+
+  scale_fill_manual(values = c(swatch, swatch))+
+  # scale_color_jama()+scale_fill_jama()+
+  theme(legend.position = "top"))
+}
+
+mygraph_fxn("GROUP1")
+mygraph_fxn("GROUP2")
+mygraph_fxn("GROUP3")
+mygraph_fxn("GROUP4")
+mygraph_fxn("GROUP5")
+mygraph_fxn("GROUP6")
+mygraph_fxn("GROUP7")
+mygraph_fxn("GROUP8")
+mygraph_fxn("GROUP9")
+mygraph_fxn("GROUP10")
+mygraph_fxn("GROUP11")
+mygraph_fxn("GROUP13")
+
+mygraph_fxn("GROUP14")
+
+
+
+
+(EM_SAFwCALC_2112%>%
+    filter(elapsed_months>0,SUBGROUP%in%c("MS","HI","AZ"))%>%
+    dplyr::select(SUBGROUP,ds,`O:E`))
+
+(EM_SAFwCALC_2112%>%
+    filter(elapsed_months>0,SUBGROUP%in%c("MO"))%>%
+    mutate(OE=`Cumulative observed deaths`/`Cumulative expected deaths`)%>%
+    ggplot(aes(x=ds))+
+    geom_line(aes(y=OE,color=SUBGROUP))+theme_minimal())
+
+(EM_SAFwCALC_2112%>%
+    filter(elapsed_months>0,SUBGROUP%in%c("MO"))%>%
+    mutate(OE=`Cumulative observed deaths`/`Cumulative expected deaths`)%>%
+    ggplot(aes(x=ds))+
+    geom_line(aes(y=`Cumulative excess deaths 10k`,color=SUBGROUP))+theme_minimal())
+
+(pubsaf2112v2%>%filter(ORG_TY=="LU",TFL_COD==2804,ds<="2021-03-31")%>%summarise(N=n()))
+
+(EM_SAFwCALC_2112%>%
+    filter(elapsed_months%in%c(7),GROUP=="GROUP14",SUBGROUP=="MO")%>%
+    mutate(OE=`Cumulative observed deaths`/`Cumulative expected deaths`)%>%
+    select(SUBGROUP,ds,elapsed_months,OE)%>%arrange(desc(OE)))
+
+```
+

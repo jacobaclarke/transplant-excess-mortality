@@ -1,0 +1,282 @@
+---
+title: "CDC data"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r get and load CDC data}
+
+cdc14<-read.socrata("https://data.cdc.gov/api/odata/v4/3yf8-kanr")%>%
+  mutate(weekendingdate=lubridate::ymd(weekendingdate))
+
+cdc20<-read.socrata(url="https://data.cdc.gov/api/odata/v4/muzy-jte6")%>%
+  rename(allcause=all_cause,weekendingdate=week_ending_date)%>%
+  mutate(weekendingdate=lubridate::ymd(weekendingdate))
+
+cdcage<-read.socrata(url="https://data.cdc.gov/NCHS/Weekly-Counts-of-Deaths-by-Jurisdiction-and-Age/y5bj-9g5w")
+
+cdc_race_ethn<-read.socrata(url="https://data.cdc.gov/resource/qfhf-uhaa.json")
+statecode<-read_xlsx(here("excelfiles","statecode.xlsx"))%>%mutate(across(c(state,code),factor))
+
+pubsafinst2112<-read_sas(here("dec2021_saf_release","institution.sas7bdat"))%>%
+  dplyr::select(PRIMARY_STATE,REGION)%>%
+  distinct()%>%add_row(PRIMARY_STATE="AK",REGION=6)%>%
+  mutate(PRIMARY_STATE=factor(PRIMARY_STATE))
+
+
+
+make_cdc<-function(){
+  
+cdc_ALL<-bind_rows(cdc14,cdc20)%>%
+  mutate(SUBGROUP=jurisdiction_of_occurrence,
+         GROUP=factor("GROUP1"),
+         y=allcause,ds=weekendingdate,
+         ds=ceiling_date(ymd(weekendingdate),unit="month")-days(1),
+         y_c19=covid_19_u071_underlying_cause_of_death,
+         y_c19m=covid_19_u071_multiple_cause_of_death,
+         SUBGROUP=ifelse(SUBGROUP=="New York City","New York",SUBGROUP))%>%
+  group_by(SUBGROUP,ds)%>%
+  mutate(y=sum(y),y_c19=sum(y_c19),y_c19m=sum(y_c19m),SUBGROUP=factor(SUBGROUP))%>%
+  ungroup()%>%dplyr::select(GROUP,SUBGROUP,ds,y,y_c19,y_c19m)%>%
+  mutate(y=ifelse(is.na(y),0,y),y_c19=ifelse(is.na(y_c19),0,y_c19),
+         y_c19m=ifelse(is.na(y_c19m),0,y_c19m))%>%arrange(SUBGROUP,ds)%>%
+  left_join(.,statecode,by=c("SUBGROUP"="state"))%>%
+  left_join(.,pubsafinst2112,by=c("code"="PRIMARY_STATE"))%>%
+  distinct()%>%mutate(elapsed_months=interval("2019-12-31",ds)%/%months(1))%>%
+  mutate(REGION=ifelse(code=="MT",6,
+                       ifelse(code=="WY",8,
+                              ifelse(code=="ID",6,REGION))))%>%
+  select(GROUP,SUBGROUP,REGION,code,elapsed_months,ds,y,y_c19,y_c19m)%>%
+  mutate(SUBGROUP=factor(paste0(SUBGROUP,GROUP)))
+
+(cdc_REGION<-cdc_ALL%>%
+  filter(!is.na(REGION))%>%
+  group_by(ds,REGION)%>%
+  mutate(y=sum(y),y_c19m=sum(y_c19m),GROUP=factor("GROUP10"))%>%
+  ungroup()%>%
+  distinct(ds,REGION,.keep_all=T)%>%
+  mutate(SUBGROUP=factor(REGION),y_c19=0)%>%
+  select(GROUP,SUBGROUP,REGION,elapsed_months,ds,y,y_c19,y_c19m))
+
+(cdc_AGE<-read.socrata(
+  url="https://data.cdc.gov/NCHS/Weekly-Counts-of-Deaths-by-Jurisdiction-and-Age/y5bj-9g5w")%>%
+  filter(jurisdiction=="United States",type=="Unweighted")%>%
+  mutate(ds=ymd(ceiling_date(week_ending_date,unit="month")-days(1)),
+           elapsed_months=interval("2019-12-31",ds)%/%months(1),
+           y=as.integer(number_of_deaths),
+           GROUP=factor("GROUP2"),
+           SUBGROUP=(case_when(
+             age_group=="Under 25 years"~"<25",
+             age_group=="25-44 years"~"25-44",
+             age_group=="45-64 years"~"45-64",
+             age_group=="65-74 years"~"65+",
+             age_group=="75-84 years"~"65+",
+             age_group=="85 years and older"~"65+")),
+           code=factor(state_abbreviation))%>%
+    group_by(ds,SUBGROUP)%>%
+    mutate(y=sum(y))%>%ungroup()%>%
+  mutate(y_c19=as.integer(NA),y_c19m=as.integer(NA),REGION=as.integer(NA))%>%
+  select(GROUP,SUBGROUP,REGION,elapsed_months,ds,y,y_c19,y_c19m)%>%
+  distinct()%>%
+  mutate(SUBGROUP=paste("AGE",SUBGROUP)))
+
+cdc_re<-cdc_race_ethn%>%
+  filter(jurisdiction=="United States")%>%
+  mutate(ds=ymd(ceiling_date(week_ending_date,unit="month")-days(1)))%>%
+  select(-week_ending_date)%>%
+  mutate(
+    CAN_RACE_SRTR=factor(case_when(
+      race_ethnicity=="Non-Hispanic Asian"~"Asian",
+      (race_ethnicity=="Non-Hispanic White"|race_ethnicity=="Hispanic")~"White",
+      race_ethnicity=="Non-Hispanic Black"~"Black",
+      race_ethnicity=="Non-Hispanic American Indian or Alaska Native"~"Other",
+      race_ethnicity=="Other"~"Other")),
+    CAN_ETHNICITY_SRTR=factor(case_when(
+      race_ethnicity=="Hispanic"~"LATINO",
+      TRUE~"NLATIN")))
+  
+cdc_RACE<-cdc_re%>%
+  select(-CAN_ETHNICITY_SRTR)%>%
+  filter(type=="Unweighted")%>%
+  mutate(GROUP=factor("GROUP3"),code=factor("US"),
+         outcome=factor(outcome),
+         number_of_deaths=as.integer(number_of_deaths))%>%
+  select(GROUP,code,ds,CAN_RACE_SRTR,outcome,number_of_deaths)%>%
+  group_by(ds,CAN_RACE_SRTR,outcome)%>%
+  mutate(y=sum(number_of_deaths))%>%
+  ungroup()%>%select(-number_of_deaths)%>%
+  distinct()%>%
+  pivot_wider(names_from=outcome,values_from=y)%>%
+  rename(y=`All Cause`,
+         y_2=`All Cause excluding COVID-19`,
+         y_c19=`COVID-19`)%>%
+  mutate(elapsed_months=interval("2019-12-31",ds)%/%months(1))%>%
+  mutate(SUBGROUP=factor(paste("RACE",CAN_RACE_SRTR)),REGION=as.integer(NA))%>%
+  dplyr::select(-y_2)%>%
+  dplyr::select(GROUP,SUBGROUP,REGION,code,elapsed_months,ds,y,y_c19)%>%
+  mutate(y_c19m=as.integer(NA))%>%distinct()%>%arrange(SUBGROUP,elapsed_months)
+
+cdc_ETHNICITY<-cdc_re%>%
+  select(-CAN_RACE_SRTR)%>%
+  filter(type=="Unweighted")%>%
+  mutate(GROUP=factor("GROUP4"),code=factor("US"),
+         outcome=factor(outcome),
+         number_of_deaths=as.integer(number_of_deaths))%>%
+  dplyr::select(GROUP,code,ds,CAN_ETHNICITY_SRTR,outcome,number_of_deaths)%>%
+  group_by(ds,CAN_ETHNICITY_SRTR,outcome)%>%
+  mutate(y=sum(number_of_deaths))%>%
+  ungroup()%>%select(-number_of_deaths)%>%
+  distinct()%>%
+  pivot_wider(names_from=outcome,values_from=y)%>%
+  rename(y=`All Cause`,
+         y_2=`All Cause excluding COVID-19`,
+         y_c19=`COVID-19`)%>%
+  mutate(elapsed_months=interval("2019-12-31",ds)%/%months(1))%>%
+  mutate(SUBGROUP=factor(paste("ETHNICITY",CAN_ETHNICITY_SRTR)),REGION=as.integer(NA))%>%
+  dplyr::select(-y_2)%>%
+  dplyr::select(GROUP,SUBGROUP,REGION,code,elapsed_months,ds,y,y_c19)%>%
+  mutate(y_c19m=as.integer(NA))
+
+  
+cdc<<-bind_rows(cdc_ALL,cdc_AGE,cdc_REGION,cdc_RACE,cdc_ETHNICITY)
+
+
+save(cdc,file="cdc.rdata")
+}
+
+make_cdc()
+
+
+# PROPHET 
+
+date.list<<-ceiling_date(seq(ymd("2014-02-01"),ymd("2021-12-31"),"month")-days(1))%>%as.Date
+date.list2<<-floor_date(seq(ymd("2014-01-01"),ymd("2021-12-31"),"month"))%>%as.Date
+
+
+cdctmp1<-data.frame()
+predict_cdc<-function(){
+for (k in unique(cdc$SUBGROUP)){
+  cdctmp2<-cdc%>%filter(SUBGROUP==k,elapsed_months<1)
+  cdctmp3<-prophet(cdctmp2)
+  cdctmp4<-cdc%>%filter(SUBGROUP==k)
+  cdctmp5<-predict(cdctmp3,cdctmp4)%>%tibble()%>%bind_cols(.,cdctmp4)
+  cdctmp1<<-bind_rows(cdctmp1,cdctmp5)
+  
+save(cdctmp1,file="cdctmp1.rdata") 
+}
+}
+predict_cdc()
+
+load(file="cdctmp1.rdata")
+
+cdctmp1.1<<-cdctmp1%>%
+  dplyr::select(-starts_with(c("additive","multiplicative","yearly","trend")),-ds...22)%>%
+  rename(ds=ds...1)%>%
+  mutate(ds=ymd(ds),code=factor(tolower(code)),REGION=factor(REGION),SUBGROUP=factor(SUBGROUP))
+  
+save(cdctmp1.1,file="cdctmp1.1.rdata")
+
+# CENSUS
+
+load("cdctmp1.1.rdata")
+
+add_census<-function(){
+  census<-read_xlsx("census2019.xlsx")%>%
+  dplyr::select(-age)%>%
+  mutate(age=factor(age2),sex=factor(sex),ethnicity=factor(ethnicity),
+         population=as.integer(population),
+         race=factor(case_when(
+      race=="White"~"White",
+      race=="Black"~"Black",
+      race=="Asian"~"Asian",
+      race=="NHPI"~"Other",
+      race=="AIAN"~"Other")),
+      ethnicity=factor(case_when(
+        ethnicity=="Hispanic"~"LATINO",
+        ethnicity=="Non-Hispanic"~"NLATIN")))
+
+(censusage<-census%>%group_by(age)%>%
+  mutate(population=sum(population))%>%
+  ungroup()%>%distinct(age,population)%>%
+  mutate(code=factor(paste("AGE",age)))%>%
+  select(-age))
+
+(censusrace<-census%>%group_by(race)%>%
+  mutate(population=sum(population))%>%
+  ungroup()%>%distinct(race,population)%>%
+  mutate(code=factor((paste("RACE",race))))%>%
+  select(-race))
+
+(censusethnicity<-census%>%group_by(ethnicity)%>%
+  mutate(population=sum(population))%>%
+  ungroup()%>%distinct(ethnicity,population)%>%
+  mutate(code=factor(toupper(paste("ETHNICITY",ethnicity))))%>%
+  select(-ethnicity))
+
+(censuspop<-bind_rows(censusage,censusrace,censusethnicity)%>%
+  rename(SUBGROUP=code))%>%
+  mutate(GROUP=case_when(
+    str_detect(SUBGROUP,"AGE")~"GROUP2",
+    str_detect(SUBGROUP,"RACE")~"GROUP3",
+    str_detect(SUBGROUP,"ETHNICITY")~"GROUP4"))
+
+(census2<-read_xlsx("census_2019.xlsx")%>%
+  mutate(SUBGROUP=paste0(state,GROUP),
+         population=as.integer(population),
+         category=toupper(category))%>%
+  left_join(.,pubsafinst2112,by=c("category"="PRIMARY_STATE"))%>%
+  mutate(REGION=ifelse(category=="MT",6,ifelse(category=="WY",8,ifelse(category=="ID",6,REGION)))))
+
+(group10<-census2%>%
+  group_by(REGION)%>%
+  mutate(population=sum(population))%>%
+  ungroup()%>%
+    select(REGION,population)%>%
+    distinct()%>%filter(!is.na(REGION))%>%
+    rename(SUBGROUP=REGION)%>%
+    mutate(GROUP=factor("GROUP10"))%>%
+    select(GROUP,SUBGROUP,population)%>%
+    mutate(SUBGROUP=factor(SUBGROUP)))
+
+(group1<-census2%>%select(-REGION)%>%select(GROUP,SUBGROUP,state,category,population))%>%
+  rename(code=category)%>%
+  mutate(across(c(GROUP,SUBGROUP,state,code),factor))
+
+(censuspop<-bind_rows(censuspop,group1,group10)%>%distinct()%>%
+    mutate(across(c(GROUP,SUBGROUP),factor)))
+
+(cdctmp1.2<<-left_join(cdctmp1.1,censuspop,by=c("SUBGROUP"="SUBGROUP"))%>%
+    distinct()%>%select(-GROUP.y)%>%rename(GROUP=GROUP.x))
+
+  }
+
+add_census()
+
+
+EM_CDCwCALC_2112<<-cdctmp1.2%>%
+  group_by(SUBGROUP)%>%
+  mutate(
+    elapsed_months=elapsed_months-2,
+    percapita=10000,
+    `Observed Deaths`=y,
+    `Expected Deaths`=yhat,
+    `O:E`=y/yhat,
+    `Cumulative observed deaths`=cumsum(ifelse(elapsed_months>0,y,0)),
+    `Cumulative observed deaths from COVID-19`=cumsum(ifelse(elapsed_months>0,y_c19,0)),
+    `Cumulative expected deaths`=cumsum(ifelse(elapsed_months>0,yhat,0)),
+    `Cumulative expected deaths lwr`=cumsum(ifelse(elapsed_months>0,yhat_lower,0)),
+    `Cumulative expected deaths upr`=cumsum(ifelse(elapsed_months>0,yhat_upper,0)),
+    `Excess Deaths`=y-yhat,
+    `Cumulative excess deaths`=cumsum(ifelse(elapsed_months>0,y-yhat,0)),
+    `Cumulative excess deaths lwr`=cumsum(ifelse(elapsed_months>0,y-yhat_upper,0)),
+    `Cumulative excess deaths upr`=cumsum(ifelse(elapsed_months>0,y-yhat_lower,0)),
+    `Cumulative excess deaths 10k`=cumsum(ifelse(elapsed_months>0,percapita*((y-yhat)/population),0)),
+    `Cumulative excess deaths 10k lwr`=cumsum(ifelse(elapsed_months>0,percapita*((y-yhat_upper)/population),0)),
+    `Cumulative excess deaths 10k upr`=cumsum(ifelse(elapsed_months>0,percapita*((y-yhat_lower)/population),0)),
+    `Excess mortality from COVID-19(%)`=paste0(round(100*(cumsum(y_c19)/`Cumulative excess deaths`),1),"%"))%>%
+    ungroup()%>%select(-code,-category,-REGION,-state)%>%mutate(SOURCE=factor("CDC"))
+
+save(EM_CDCwCALC_2112,file="EM_CDCwCALC_2112.rdata")
+
+```
